@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>301-(RW/3D) Tasks Automation</title>
+<style>
+  :root {
+    --bg: #F4F5F8; --card: #FFFFFF; --border: #E3E5EA;
+    --text: #1F2430; --muted: #6B7280; --accent: #4F46E5; --accent-hover: #4338CA;
+    --success: #16A34A; --error: #DC2626; --log-bg: #111827; --log-fg: #E5E7EB;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); font-size: 14px; margin: 0; }
+  a.logout { font-size: 13px; color: var(--muted); text-decoration: none; }
+  a.logout:hover { text-decoration: underline; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 14px;
+  }
+  .badge .num {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  input[type=text], input[type=url], input[type=file] {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+  }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row input[type=text] { width: 70px; flex: none; }
+  small.hint { color: var(--muted); display: block; margin-top: 4px; font-size: 12px; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  textarea {
+    width: 100%; height: 60px; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;
+  }
+  .checkline { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 400; margin: 8px 0; }
+
+  button.primary {
+    margin-top: 16px; width: 100%; padding: 11px; border: 0; border-radius: 9px;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  button.primary:disabled { background: #C7C9F4; cursor: not-allowed; }
+
+  .use-last {
+    display: none; background: #EEF0FF; border: 1px dashed var(--accent); border-radius: 9px;
+    padding: 10px 12px; font-size: 13px; margin-top: 14px; align-items: center; justify-content: space-between;
+  }
+  .use-last button { border: 0; background: var(--accent); color: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+
+  .status-row { display: flex; align-items: center; gap: 10px; margin: 20px 0 8px; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.running { background: var(--accent); }
+  .dot.done { background: var(--success); }
+  .dot.error { background: var(--error); }
+
+  pre#log {
+    background: var(--log-bg); color: var(--log-fg); border-radius: 12px; padding: 14px 16px;
+    height: 260px; overflow-y: auto; font-family: "SF Mono", Consolas, monospace; font-size: 12.5px;
+    white-space: pre-wrap; margin: 0;
+  }
+  .download-link {
+    display: none; margin-top: 12px; text-align: center;
+  }
+  .download-link a {
+    display: inline-block; background: var(--success); color: #fff; text-decoration: none;
+    padding: 10px 18px; border-radius: 9px; font-weight: 700; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Redirect Map Builder</h1>
+      <p class="sub">Build a 301 redirect map from an old site, then match it against the new one.</p>
+    </div>
+    <a class="logout" href="{{ url_for('logout') }}">Sign out</a>
+  </header>
+
+  <div class="grid">
+    <!-- Step 1 -->
+    <div class="card">
+      <div class="badge"><span class="num">1</span> Build the map from the OLD site</div>
+      <form id="form1">
+        <label>Old site URL</label>
+        <input type="url" name="old_url" placeholder="https://www.oldsite.com/" required>
+
+        <details>
+          <summary>Advanced options</summary>
+          <div class="row" style="margin-top:10px;">
+            <label style="margin:0;">Max pages to crawl</label>
+            <input type="text" name="max_pages" value="300">
+          </div>
+          <div class="checkline"><input type="checkbox" name="no_crawl" id="no_crawl1"><label for="no_crawl1" style="margin:0;">Don't fall back to crawling</label></div>
+          <div class="checkline"><input type="checkbox" name="no_rest_api" id="no_rest_api1"><label for="no_rest_api1" style="margin:0;">Skip WordPress REST API check</label></div>
+          <label>Extra URLs (one per line — orphaned pages)</label>
+          <textarea name="extra_urls" placeholder="https://site.com/page-a"></textarea>
+        </details>
+
+        <button class="primary" type="submit">Build Redirect Map from Old Site</button>
+      </form>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="card">
+      <div class="badge"><span class="num">2</span> Match in the NEW site</div>
+      <form id="form2">
+        <label>New site URL</label>
+        <input type="url" name="new_url" placeholder="https://www.newsite.com/" required>
+
+        <div class="use-last" id="useLast">
+          <span>Continue with the workbook you just built<br><small id="useLastName"></small></span>
+          <button type="button" id="useLastBtn">Use it</button>
+        </div>
+
+        <label>Or upload a workbook (.xlsx)</label>
+        <input type="file" name="workbook_file" accept=".xlsx">
+        <small class="hint">Skip this if you clicked "Use it" above.</small>
+
+        <details>
+          <summary>Advanced options</summary>
+          <div class="row" style="margin-top:10px;">
+            <label style="margin:0;">Max pages to crawl</label>
+            <input type="text" name="max_pages2" value="300">
+          </div>
+          <div class="checkline"><input type="checkbox" name="no_crawl2" id="no_crawl2"><label for="no_crawl2" style="margin:0;">Don't fall back to crawling</label></div>
+        </details>
+
+        <input type="hidden" name="source_job_id" id="sourceJobId">
+        <button class="primary" type="submit">Match New Site into Workbook</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Ready.</span>
+  </div>
+  <pre id="log"></pre>
+  <div class="download-link" id="downloadWrap">
+    <a id="downloadLink" href="#">Download workbook</a>
+  </div>
+</div>
+
+<script>
+let pollTimer = null;
+
+function setStatus(text, kind) {
+  document.getElementById('statusText').textContent = text;
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot' + (kind ? ' ' + kind : '');
+}
+
+function resetLog() {
+  document.getElementById('log').textContent = '';
+  document.getElementById('downloadWrap').style.display = 'none';
+}
+
+function pollJob(jobId) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const res = await fetch(`/api/status/${jobId}`);
+    if (!res.ok) { clearInterval(pollTimer); setStatus('Lost track of that job.', 'error'); return; }
+    const data = await res.json();
+    document.getElementById('log').textContent = data.log;
+    document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
+    if (data.status === 'running') {
+      setStatus('Running…', 'running');
+    } else if (data.status === 'done') {
+      clearInterval(pollTimer);
+      setStatus('Done.', 'done');
+      const link = document.getElementById('downloadLink');
+      link.href = `/download/${jobId}`;
+      document.getElementById('downloadWrap').style.display = 'block';
+    } else {
+      clearInterval(pollTimer);
+      setStatus('Finished with errors — see log above.', 'error');
+    }
+  }, 1500);
+}
+
+async function submitForm(formEl, endpoint, onStarted) {
+  resetLog();
+  setStatus('Starting…', 'running');
+  const fd = new FormData(formEl);
+  const res = await fetch(endpoint, { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) {
+    setStatus(data.error || 'Something went wrong.', 'error');
+    return;
+  }
+  if (onStarted) onStarted(data);
+  pollJob(data.job_id);
+}
+
+document.getElementById('form1').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitForm(e.target, '/api/start-stage1', (data) => {
+    // Remember this build so Step 2 can offer to reuse it, both in this
+    // tab (job_id, works as long as the server process stays up) and
+    // across visits (download_name, just for the label).
+    localStorage.setItem('lastStage1Job', JSON.stringify({
+      job_id: data.job_id, download_name: data.download_name,
+    }));
+    showUseLast();
+  });
+});
+
+document.getElementById('form2').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitForm(e.target, '/api/start-stage2');
+});
+
+function showUseLast() {
+  const raw = localStorage.getItem('lastStage1Job');
+  if (!raw) return;
+  try {
+    const { job_id, download_name } = JSON.parse(raw);
+    document.getElementById('useLastName').textContent = download_name || 'redirect_map.xlsx';
+    document.getElementById('useLast').style.display = 'flex';
+    document.getElementById('useLastBtn').onclick = () => {
+      document.getElementById('sourceJobId').value = job_id;
+      document.getElementById('useLastBtn').textContent = 'Selected ✓';
+    };
+  } catch (e) { /* ignore malformed localStorage */ }
+}
+
+showUseLast();
+</script>
+</body>
+</html>

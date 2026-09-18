@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>301-(RW/3D) Tasks Automation — Sign in</title>
+<style>
+  :root {
+    --bg: #F4F5F8; --card: #FFFFFF; --border: #E3E5EA;
+    --text: #1F2430; --muted: #6B7280; --accent: #4F46E5; --error: #DC2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 36px 32px; width: 320px; box-shadow: 0 8px 24px rgba(20, 20, 40, 0.06);
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  input[type=password] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; margin-bottom: 12px;
+  }
+  button {
+    width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: var(--accent);
+    color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #4338CA; }
+  .error { color: var(--error); font-size: 13px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+  <form class="card" method="post">
+    <h1>301-Tasks Automation</h1>
+    <p class="sub">Enter the shared password to continue.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>

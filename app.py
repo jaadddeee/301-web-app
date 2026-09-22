@@ -52,6 +52,7 @@ from urllib.parse import urlparse
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import (
     Flask, abort, jsonify, redirect, render_template, request,
@@ -72,6 +73,18 @@ JOB_TTL_SECONDS = 6 * 60 * 60  # delete job folders/output files after 6h
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# Render (and most PaaS hosts) sit a reverse proxy in front of the app, so
+# every request Flask sees actually comes from that proxy's internal IP,
+# with the real client's address only preserved in the X-Forwarded-For
+# header. Without this, request.remote_addr (what the rate limiter keys
+# on) and request.is_secure (used for the HSTS header) are both wrong for
+# every single request -- worst case, ALL users would share one rate-limit
+# bucket, since they'd all appear to be the same "IP" to Flask. x_for=1,
+# x_proto=1 trusts exactly one hop of proxy, matching Render's setup;
+# raise these if you ever put this behind an additional proxy (e.g.
+# Cloudflare in front of Render).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Cookie/session hardening.
 app.config.update(
@@ -308,6 +321,14 @@ def handle_rate_limit(e):
     return render_template(
         "error.html", code=429, title="Too many requests", message=message
     ), 429
+
+
+@app.errorhandler(413)
+def handle_too_large(e):
+    return render_template(
+        "error.html", code=413, title="Upload too large",
+        message="That file or request is larger than this app allows (20MB max).",
+    ), 413
 
 
 @app.errorhandler(404)

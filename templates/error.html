@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} — Redirect Map Builder</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+<link rel="alternate icon" href="{{ url_for('static', filename='favicon.ico') }}">
+<style>
+  :root {
+    --bg: #F4F5F8; --card: #FFFFFF; --border: #E3E5EA;
+    --text: #1F2430; --muted: #6B7280; --accent: #4F46E5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text); padding: 20px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 36px 32px; max-width: 420px; text-align: center;
+    box-shadow: 0 8px 24px rgba(20, 20, 40, 0.06);
+  }
+  .code {
+    display: inline-block; background: #EEF0FF; color: var(--accent); font-weight: 700;
+    font-size: 12px; letter-spacing: 0.04em; padding: 4px 10px; border-radius: 999px;
+    margin-bottom: 14px;
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p.msg { color: var(--muted); font-size: 14px; margin: 0 0 20px; line-height: 1.5; }
+  a.back {
+    display: inline-block; background: var(--accent); color: #fff; text-decoration: none;
+    padding: 10px 18px; border-radius: 9px; font-weight: 600; font-size: 14px;
+  }
+  a.back:hover { background: #4338CA; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="code">Error {{ code }}</span>
+    <h1>{{ title }}</h1>
+    <p class="msg">{{ message }}</p>
+    <a class="back" href="{{ url_for('index') }}">Back to the app</a>
+  </div>
+</body>
+</html>

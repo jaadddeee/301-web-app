@@ -297,6 +297,27 @@ def favicon():
     return send_from_directory(BASE_DIR / "static", "favicon.ico")
 
 
+@app.errorhandler(429)
+def handle_rate_limit(e):
+    # e.description holds the specific limit that was hit, e.g. "6 per 1 minute"
+    detail = getattr(e, "description", None)
+    message = "You've made too many requests in a short time."
+    if detail:
+        message += f" Limit: {detail}."
+    message += " Please wait a bit and try again."
+    return render_template(
+        "error.html", code=429, title="Too many requests", message=message
+    ), 429
+
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    return render_template(
+        "error.html", code=404, title="Page not found",
+        message="That page doesn't exist.",
+    ), 404
+
+
 @app.route("/")
 @require_login
 def index():

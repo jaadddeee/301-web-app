@@ -89,7 +89,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>Redirect Map Builder</h1>
+      <h1>301-(RW-3D) Tasks Automation</h1>
       <p class="sub">Build a 301 redirect map from an old site, then match it against the new one.</p>
     </div>
     <a class="logout" href="{{ url_for('logout') }}">Sign out</a>
@@ -202,7 +202,24 @@ async function submitForm(formEl, endpoint, onStarted) {
   setStatus('Starting…', 'running');
   const fd = new FormData(formEl);
   const res = await fetch(endpoint, { method: 'POST', body: fd });
-  const data = await res.json();
+
+  // Our own routes always return JSON. But some failures (413 too-large,
+  // 429 rate-limited, a raw 500) are caught earlier by Flask/Werkzeug and
+  // rendered as a full HTML error page instead -- res.json() would throw
+  // on that and leave the UI stuck on "Starting…" forever. Check the
+  // content type first so those cases show a real message instead.
+  const contentType = res.headers.get('content-type') || '';
+  let data;
+  if (contentType.includes('application/json')) {
+    data = await res.json();
+  } else {
+    const statusMessages = {
+      413: 'That file or request is too large (20MB max).',
+      429: 'Too many requests -- please wait a bit and try again.',
+    };
+    data = { error: `Request failed (HTTP ${res.status}). ${statusMessages[res.status] || 'Please try again.'}` };
+  }
+
   if (!res.ok) {
     setStatus(data.error || 'Something went wrong.', 'error');
     return;

@@ -38,6 +38,7 @@ from sitemap_to_redirect_map import (
     clean_title,
     fetch_page_data,
     resolve_duplicate_titles,
+    strip_common_title_suffix,
     _canonicalize,
 )
 
@@ -95,6 +96,7 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
         print(f"  [{i}/{len(urls)}] {title} -> {slug}", file=sys.stderr)
 
     resolve_duplicate_titles(entries)
+    strip_common_title_suffix(entries)
     return [(e["title"], e["slug"], e["url"]) for e in entries]
 
 

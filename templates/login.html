@@ -39,6 +39,10 @@
     <h1>301-Tasks Automation</h1>
     <p class="sub">Enter the shared password to continue.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <div style="position:absolute; left:-9999px;" aria-hidden="true">
+      <label for="website">Leave this field empty</label>
+      <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+    </div>
     <input type="password" name="password" placeholder="Password" autofocus required>
     <button type="submit">Sign in</button>
   </form>

@@ -363,7 +363,15 @@ def is_excluded_url(url: str) -> bool:
 
 
 def is_homepage_url(url: str, site_root: str) -> bool:
-    path = urlparse(url).path.strip("/")
+    parsed = urlparse(url)
+    if parsed.query:
+        # A URL with a query string is never "the homepage" even if its
+        # path component happens to be empty -- e.g. WordPress's raw
+        # ?p=123 permalink format (used when pretty permalinks aren't
+        # set for a given post) has an empty path but points at a real,
+        # specific piece of content, not the site root.
+        return False
+    path = parsed.path.strip("/")
     return path == "" or url.rstrip("/") == site_root.rstrip("/")
 
 
@@ -458,6 +466,48 @@ def resolve_duplicate_titles(entries: list) -> None:
             print(f"  Duplicate title detected for {e['url']} "
                   f"-> using on-page heading \"{cleaned}\" instead", file=sys.stderr)
             e["title"] = cleaned
+
+
+def strip_common_title_suffix(entries: list) -> None:
+    """
+    clean_title() only strips a pipe-style SEO suffix ("Page | Site Name"),
+    deliberately leaving dash-separated titles alone -- a dash is too
+    likely to be real title content (e.g. "Non-Emergency Transportation")
+    to strip on sight. But a genuine site-wide suffix introduced by a dash,
+    en dash, em dash, or colon instead of a pipe ("Page - Site Name in
+    Ohio") is still just as common across SEO plugins.
+
+    Rather than guessing which punctuation is "safe", look at what was
+    actually fetched in this run: if the same trailing text shows up at
+    the end of most titles, that's the signature of a site-wide suffix
+    regardless of which character introduces it, and it's safe to remove
+    -- a one-off dash inside a single unique title will never repeat
+    often enough to trigger this.
+    """
+    candidates = [e["title"] for e in entries if e["title"] and e["title"] != "Home"]
+    if len(candidates) < 3:
+        return
+
+    from collections import Counter
+    suffix_counts = Counter()
+    for title in candidates:
+        for sep in (" - ", " | ", " \u2013 ", " \u2014 ", " :: ", " : "):
+            idx = title.rfind(sep)
+            if idx != -1:
+                suffix_counts[title[idx:]] += 1
+
+    if not suffix_counts:
+        return
+
+    suffix, count = suffix_counts.most_common(1)[0]
+    if count < max(3, len(candidates) // 2):
+        return  # not common enough to be confident it's a site-wide suffix
+
+    for e in entries:
+        if e["title"] and e["title"] != "Home" and e["title"].endswith(suffix):
+            stripped = e["title"][: -len(suffix)].strip()
+            if stripped:
+                e["title"] = stripped
 
 
 def build_workbook(site_url: str, rows: list, out_path: str):
@@ -618,6 +668,7 @@ def main():
         print(f"Skipped {skipped_posts} individual blog post(s).", file=sys.stderr)
 
     resolve_duplicate_titles(entries)
+    strip_common_title_suffix(entries)
     rows = [(e["title"], e["url"]) for e in entries]
 
     build_workbook(site_root, rows, args.output)

@@ -37,6 +37,7 @@ Environment variables:
 
 import ipaddress
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -44,13 +45,17 @@ import sys
 import threading
 import time
 import uuid
+from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 from flask import (
     Flask, abort, jsonify, redirect, render_template, request,
-    send_file, session, url_for,
+    send_file, send_from_directory, session, url_for,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -67,6 +72,36 @@ JOB_TTL_SECONDS = 6 * 60 * 60  # delete job folders/output files after 6h
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# Cookie/session hardening.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,      # JS can never read the session cookie
+    SESSION_COOKIE_SAMESITE="Lax",     # cookie isn't sent on cross-site POSTs
+    SESSION_COOKIE_SECURE=True,        # cookie only sent over HTTPS -- Render
+                                        # serves HTTPS, so this is fine in
+                                        # production. NOTE: if you test in a
+                                        # real browser over plain http:// from
+                                        # something other than localhost/
+                                        # 127.0.0.1 (e.g. your LAN IP like
+                                        # 192.168.x.x), login will silently
+                                        # not "stick", because the browser
+                                        # won't send a Secure cookie back over
+                                        # plain HTTP. Testing at
+                                        # http://localhost:5000 still works.
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+    MAX_CONTENT_LENGTH=20 * 1024 * 1024,  # 20MB cap per request -- blocks
+                                            # trivially oversized uploads/forms
+)
+
+# Rate limiting -- keyed by IP, stored in-memory. That's fine as long as
+# this stays a single gunicorn worker (-w 1, same requirement as the `jobs`
+# dict); move storage_uri to Redis if this ever scales past one worker.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per hour"],
+    storage_uri="memory://",
+)
 
 jobs = {}  # job_id -> dict(status, log:list[str], output_path, download_name, created)
 jobs_lock = threading.Lock()
@@ -86,16 +121,26 @@ def require_login(view):
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("6 per minute", methods=["POST"])
+@limiter.limit("30 per hour", methods=["POST"])
 def login():
     if not APP_PASSWORD:
         session["logged_in"] = True
         return redirect(url_for("index"))
     error = None
     if request.method == "POST":
-        if request.form.get("password") == APP_PASSWORD:
+        # Honeypot: a hidden field real users never see or fill, but a lot
+        # of unsophisticated bots auto-fill every input on a form. Anyone
+        # (or anything) that fills it in gets a generic wrong-password
+        # response, no different from a real failed attempt.
+        if request.form.get("website"):
+            error = "Incorrect password."
+        elif secrets.compare_digest(request.form.get("password", ""), APP_PASSWORD):
+            session.permanent = True
             session["logged_in"] = True
             return redirect(request.args.get("next") or url_for("index"))
-        error = "Incorrect password."
+        else:
+            error = "Incorrect password."
     return render_template("login.html", error=error)
 
 
@@ -228,9 +273,30 @@ def cleanup_old_jobs():
 threading.Thread(target=cleanup_old_jobs, daemon=True).start()
 
 
+@app.after_request
+def set_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if request.is_secure:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+    return response
+
+
 # --------------------------------------------------------------------- #
 # Routes
 # --------------------------------------------------------------------- #
+@app.route("/favicon.ico")
+def favicon():
+    # Some browsers request /favicon.ico directly, ahead of reading the
+    # <link rel="icon"> tag in the page -- serve it here too so those
+    # requests don't 404 (this route needs no login; a missing icon isn't
+    # worth gating behind a password prompt).
+    return send_from_directory(BASE_DIR / "static", "favicon.ico")
+
+
 @app.route("/")
 @require_login
 def index():
@@ -239,6 +305,7 @@ def index():
 
 @app.route("/api/start-stage1", methods=["POST"])
 @require_login
+@limiter.limit("10 per hour")
 def start_stage1():
     old_url = (request.form.get("old_url") or "").strip()
     if not _looks_like_url(old_url):
@@ -276,6 +343,7 @@ def start_stage1():
 
 @app.route("/api/start-stage2", methods=["POST"])
 @require_login
+@limiter.limit("10 per hour")
 def start_stage2():
     new_url = (request.form.get("new_url") or "").strip()
     if not _looks_like_url(new_url):

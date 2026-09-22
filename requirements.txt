@@ -1,4 +1,5 @@
 flask
+flask-limiter
 gunicorn
 curl_cffi
 beautifulsoup4

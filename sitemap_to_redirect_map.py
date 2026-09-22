@@ -362,6 +362,24 @@ def is_excluded_url(url: str) -> bool:
     return False
 
 
+# WordPress's default "raw" permalink format for an individual POST (blog
+# article) is exactly "?p=<id>" -- as opposed to "?page_id=<id>", which it
+# uses for PAGES. A site with pretty permalinks mostly configured can still
+# have a large batch of posts stuck on this raw format (common on older or
+# bulk-imported sites), and normally the only way to know a URL is a blog
+# post is to fetch it and check for the article:published_time meta tag.
+# But since this specific query format is reserved by WordPress for posts,
+# a URL matching it can be confidently skipped without fetching at all --
+# which matters a lot on sites with hundreds/thousands of these, where
+# fetching each one individually just to confirm "yes, it's a post" is by
+# far the slowest part of the whole run.
+_WP_POST_ID_RE = re.compile(r"^p=(\d+)$")
+
+
+def is_wp_post_id_url(url: str) -> bool:
+    return bool(_WP_POST_ID_RE.match(urlparse(url).query))
+
+
 def is_homepage_url(url: str, site_root: str) -> bool:
     parsed = urlparse(url)
     if parsed.query:
@@ -654,6 +672,10 @@ def main():
     for i, url in enumerate(urls, 1):
         if is_homepage_url(url, site_root):
             title, heading = "Home", None
+        elif is_wp_post_id_url(url):
+            skipped_posts += 1
+            print(f"  [{i}/{len(urls)}] (blog post, inferred from ?p= URL -- skipped, no fetch needed) -> {url}", file=sys.stderr)
+            continue
         else:
             raw_title, is_post, heading = fetch_page_data(url)
             if is_post:

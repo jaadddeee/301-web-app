@@ -35,11 +35,9 @@ from sitemap_to_redirect_map import (
     crawl_site,
     is_excluded_url,
     is_homepage_url,
-    is_wp_post_id_url,
     clean_title,
     fetch_page_data,
     resolve_duplicate_titles,
-    strip_common_title_suffix,
     _canonicalize,
 )
 
@@ -85,9 +83,6 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
     for i, url in enumerate(urls, 1):
         if is_homepage_url(url, site_root):
             title, heading = "Home", None
-        elif is_wp_post_id_url(url):
-            print(f"  [{i}/{len(urls)}] (blog post, inferred from ?p= URL -- skipped, no fetch needed) -> {url}", file=sys.stderr)
-            continue
         else:
             raw_title, is_post, heading = fetch_page_data(url)
             if is_post:
@@ -100,7 +95,6 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
         print(f"  [{i}/{len(urls)}] {title} -> {slug}", file=sys.stderr)
 
     resolve_duplicate_titles(entries)
-    strip_common_title_suffix(entries)
     return [(e["title"], e["slug"], e["url"]) for e in entries]
 
 
@@ -152,6 +146,14 @@ def merge_into_workbook(xlsx_path: str, new_site_url: str, pages: list, out_path
 
 
 def main():
+    try:
+        import lxml  # noqa: F401
+    except ImportError:
+        sys.exit(
+            "Missing dependency: 'lxml' is required to parse sitemap.xml files.\n"
+            "Install it with:  pip install lxml"
+        )
+
     ap = argparse.ArgumentParser(description="Match a new site's pages into an existing redirect-map workbook.")
     ap.add_argument("workbook", help="Path to the .xlsx produced by sitemap_to_redirect_map.py")
     ap.add_argument("new_site", help="New site's base URL or sitemap.xml URL")

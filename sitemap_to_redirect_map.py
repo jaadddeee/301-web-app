@@ -434,6 +434,50 @@ def extract_fallback_heading(soup: BeautifulSoup) -> str:
     return ""
 
 
+# URLs whose title could NOT be read from the real page (the fetch failed, or
+# the site answered with a bot-check/"please wait" page instead of the real
+# content), so the title in the workbook is only a guess built from the URL.
+GUESSED_TITLE_URLS = []
+
+# Titles that bot-protection / hosting interstitials use instead of the real
+# page's title. Matched at the START of the title, case-insensitively, so a
+# genuine page that merely mentions one of these words isn't caught.
+_CHALLENGE_TITLE_RE = re.compile(
+    r"^\s*(you are being redirected|just a moment|attention required|access denied|"
+    r"checking your browser|verifying you are human|one more step|please wait|"
+    r"security check|are you a robot|request blocked)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_challenge_title(title: str) -> bool:
+    return bool(title and _CHALLENGE_TITLE_RE.match(title))
+
+
+def _title_guessed_from_url(url: str, why: str) -> tuple:
+    GUESSED_TITLE_URLS.append(url)
+    print(f"    ! couldn't read the real page ({why}) -- title below is only guessed from the URL",
+          file=sys.stderr)
+    path = urlparse(url).path.strip("/")
+    slug = path.split("/")[-1] if path else "Home"
+    return (slug.replace("-", " ").replace("_", " ").title() or "Home"), False, ""
+
+
+def report_guessed_titles() -> None:
+    """Print a summary at the end of a run if any titles had to be guessed."""
+    if not GUESSED_TITLE_URLS:
+        return
+    print(
+        f"\nWARNING: {len(GUESSED_TITLE_URLS)} page(s) could not be read properly (the site "
+        f"failed to load them, or answered with a bot-check page), so their titles are only "
+        f"guesses built from the URL. Matching those rows against the new site by title won't "
+        f"be reliable. Common causes: the site's bot protection challenging this server's "
+        f"network, or crawling too fast. Trying again from a different network (for example "
+        f"your own computer instead of the hosted app) often helps.",
+        file=sys.stderr,
+    )
+
+
 def fetch_page_data(url: str) -> tuple:
     """
     Fetch the page and return (raw_title, is_blog_post, fallback_heading).
@@ -447,22 +491,24 @@ def fetch_page_data(url: str) -> tuple:
     fallback_heading is the page's on-page heading text (see
     extract_fallback_heading), used by resolve_duplicate_titles() when a
     site's <title> tag turns out to be identical across many pages.
+
+    If the page can't be fetched, or the site returns a bot-check page
+    instead of the real content, a title is guessed from the URL slug --
+    but that is now logged and counted (see report_guessed_titles) rather
+    than done silently.
     """
     try:
         r = _get(url)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
+        raw_title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
+        if looks_like_challenge_title(raw_title):
+            return _title_guessed_from_url(url, f'site returned a bot-check page titled "{raw_title}"')
         is_post = soup.find("meta", attrs={"property": "article:published_time"}) is not None
         heading = extract_fallback_heading(soup)
-        if soup.title and soup.title.string:
-            return soup.title.string.strip(), is_post, heading
-        return "", is_post, heading
-    except Exception:
-        pass
-    # Fallback: derive a readable title from the URL slug (can't check post status)
-    path = urlparse(url).path.strip("/")
-    slug = path.split("/")[-1] if path else "Home"
-    return (slug.replace("-", " ").replace("_", " ").title() or "Home"), False, ""
+        return raw_title, is_post, heading
+    except Exception as exc:
+        return _title_guessed_from_url(url, str(exc).split("\n")[0][:140])
 
 
 def resolve_duplicate_titles(entries: list) -> None:
@@ -691,6 +737,7 @@ def main():
 
     resolve_duplicate_titles(entries)
     strip_common_title_suffix(entries)
+    report_guessed_titles()
     rows = [(e["title"], e["url"]) for e in entries]
 
     build_workbook(site_root, rows, args.output)

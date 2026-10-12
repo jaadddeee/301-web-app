@@ -269,7 +269,11 @@ def cleanup_old_jobs():
         time.sleep(30 * 60)
         cutoff = time.time() - JOB_TTL_SECONDS
         with jobs_lock:
-            stale = [jid for jid, j in jobs.items() if j["created"] < cutoff]
+            # Never delete a job that's still running -- a big crawl can
+            # outlast the TTL, and pulling its folder out from under it
+            # would make it fail at the very end when it tries to save.
+            stale = [jid for jid, j in jobs.items()
+                     if j["created"] < cutoff and j["status"] != "running"]
         for jid in stale:
             job_dir = JOBS_DIR / jid
             try:
@@ -436,14 +440,23 @@ def start_stage2():
 
 @app.route("/api/status/<job_id>")
 @require_login
+@limiter.exempt  # The page polls this every ~1.5s for as long as a job runs, so
+                 # the global per-hour default would cut off any crawl longer
+                 # than ~5 minutes. It's still behind login, and it only reads
+                 # an in-memory dict, so there's nothing to protect here.
 def status(job_id):
+    # ?since=N returns only log lines from index N onward (plus `next`, the
+    # index to ask for next time), so a 13,000-line crawl log isn't
+    # re-sent in full on every poll. Omitting it returns the whole log.
+    since = max(request.args.get("since", default=0, type=int), 0)
     with jobs_lock:
         job = jobs.get(job_id)
         if not job:
             return jsonify(error="Unknown job"), 404
         return jsonify(
             status=job["status"],
-            log="\n".join(job["log"]),
+            log="\n".join(job["log"][since:]),
+            next=len(job["log"]),
             download_ready=job["status"] == "done",
         )
 

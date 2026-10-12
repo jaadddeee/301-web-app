@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>301-(RW/3D) Tasks Automation</title>
+<title>Redirect Map Builder</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 <link rel="alternate icon" href="{{ url_for('static', filename='favicon.ico') }}">
 <style>
@@ -89,7 +89,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>301-(RW-3D) Tasks Automation</h1>
+      <h1>Redirect Map Builder</h1>
       <p class="sub">Build a 301 redirect map from an old site, then match it against the new one.</p>
     </div>
     <a class="logout" href="{{ url_for('logout') }}">Sign out</a>
@@ -176,23 +176,57 @@ function resetLog() {
 
 function pollJob(jobId) {
   clearInterval(pollTimer);
+  const logEl = document.getElementById('log');
+  let offset = 0;      // how many log lines we've already shown
+  let failures = 0;    // consecutive failed polls (network blip, 429, 5xx...)
+  let inFlight = false;
+
   pollTimer = setInterval(async () => {
-    const res = await fetch(`/api/status/${jobId}`);
-    if (!res.ok) { clearInterval(pollTimer); setStatus('Lost track of that job.', 'error'); return; }
-    const data = await res.json();
-    document.getElementById('log').textContent = data.log;
-    document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
-    if (data.status === 'running') {
-      setStatus('Running…', 'running');
-    } else if (data.status === 'done') {
-      clearInterval(pollTimer);
-      setStatus('Done.', 'done');
-      const link = document.getElementById('downloadLink');
-      link.href = `/download/${jobId}`;
-      document.getElementById('downloadWrap').style.display = 'block';
-    } else {
-      clearInterval(pollTimer);
-      setStatus('Finished with errors — see log above.', 'error');
+    if (inFlight) return;  // don't stack requests if the server is slow
+    inFlight = true;
+    try {
+      let res = null;
+      try { res = await fetch(`/api/status/${jobId}?since=${offset}`); } catch (e) { res = null; }
+
+      // 404 = the server genuinely doesn't know this job (e.g. it restarted).
+      if (res && res.status === 404) {
+        clearInterval(pollTimer);
+        setStatus('The server no longer has this job (it may have restarted). Please start it again.', 'error');
+        return;
+      }
+      // Anything else that isn't OK is treated as temporary: keep trying a
+      // while before giving up, so one hiccup doesn't kill a long crawl view.
+      if (!res || !res.ok) {
+        failures += 1;
+        if (failures >= 10) {
+          clearInterval(pollTimer);
+          setStatus('Lost connection to the server. The job may still be running -- refresh in a minute.', 'error');
+        }
+        return;
+      }
+      failures = 0;
+
+      const data = await res.json();
+      if (data.log) {
+        logEl.textContent += (logEl.textContent ? '\n' : '') + data.log;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      offset = data.next;
+
+      if (data.status === 'running') {
+        setStatus('Running…', 'running');
+      } else if (data.status === 'done') {
+        clearInterval(pollTimer);
+        setStatus('Done.', 'done');
+        const link = document.getElementById('downloadLink');
+        link.href = `/download/${jobId}`;
+        document.getElementById('downloadWrap').style.display = 'block';
+      } else {
+        clearInterval(pollTimer);
+        setStatus('Finished with errors — see log above.', 'error');
+      }
+    } finally {
+      inFlight = false;
     }
   }, 1500);
 }

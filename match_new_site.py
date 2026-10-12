@@ -35,9 +35,12 @@ from sitemap_to_redirect_map import (
     crawl_site,
     is_excluded_url,
     is_homepage_url,
+    is_wp_post_id_url,
     clean_title,
     fetch_page_data,
     resolve_duplicate_titles,
+    strip_common_title_suffix,
+    report_guessed_titles,
     _canonicalize,
 )
 
@@ -83,6 +86,9 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
     for i, url in enumerate(urls, 1):
         if is_homepage_url(url, site_root):
             title, heading = "Home", None
+        elif is_wp_post_id_url(url):
+            print(f"  [{i}/{len(urls)}] (blog post, inferred from ?p= URL -- skipped, no fetch needed) -> {url}", file=sys.stderr)
+            continue
         else:
             raw_title, is_post, heading = fetch_page_data(url)
             if is_post:
@@ -95,6 +101,8 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
         print(f"  [{i}/{len(urls)}] {title} -> {slug}", file=sys.stderr)
 
     resolve_duplicate_titles(entries)
+    strip_common_title_suffix(entries)
+    report_guessed_titles()
     return [(e["title"], e["slug"], e["url"]) for e in entries]
 
 

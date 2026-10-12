@@ -82,23 +82,22 @@ def _get(url, **kwargs):
     return requests.get(url, **kwargs)
 
 
-def discover_wp_rest_pages(site_url: str, max_pages: int = 1000) -> list:
+def _discover_wp_rest_links(site_url: str, endpoint: str, max_items: int, timeout=None) -> list:
     """
-    Query the WordPress REST API (/wp-json/wp/v2/pages) to enumerate EVERY
-    published page, including orphaned ones with no incoming links anywhere
-    on the site — something neither a sitemap.xml nor link-crawling can
-    guarantee to catch. Works on any standard WordPress install where the
-    REST API hasn't been disabled. Returns [] quietly if it's unavailable,
-    blocked, or the site isn't WordPress.
+    Page through a WordPress REST API collection (e.g. "pages" or "posts"),
+    100 items per request, and return the public link of every item.
+    Returns whatever was collected so far -- possibly []-- if the API is
+    disabled, blocked, slow, or the site isn't WordPress.
     """
     parsed = urlparse(site_url)
-    api_base = f"{parsed.scheme}://{parsed.netloc}/wp-json/wp/v2/pages"
+    api_base = f"{parsed.scheme}://{parsed.netloc}/wp-json/wp/v2/{endpoint}"
+    extra = {"timeout": timeout} if timeout else {}
 
     urls = []
     page = 1
     while True:
         try:
-            r = _get(api_base, params={"per_page": 100, "page": page, "_fields": "link"})
+            r = _get(api_base, params={"per_page": 100, "page": page, "_fields": "link"}, **extra)
         except Exception:
             # Broad catch is intentional: curl_cffi's exception hierarchy
             # differs from plain requests', and every failure here is
@@ -120,11 +119,53 @@ def discover_wp_rest_pages(site_url: str, max_pages: int = 1000) -> list:
         urls.extend(item["link"] for item in data if item.get("link"))
 
         total_pages = r.headers.get("X-WP-TotalPages")
-        if (total_pages and page >= int(total_pages)) or len(data) < 100 or len(urls) >= max_pages:
+        if (total_pages and page >= int(total_pages)) or len(data) < 100 or len(urls) >= max_items:
             break
         page += 1
 
     return urls
+
+
+def discover_wp_rest_pages(site_url: str, max_pages: int = 1000) -> list:
+    """
+    Query the WordPress REST API (/wp-json/wp/v2/pages) to enumerate EVERY
+    published page, including orphaned ones with no incoming links anywhere
+    on the site — something neither a sitemap.xml nor link-crawling can
+    guarantee to catch. Works on any standard WordPress install where the
+    REST API hasn't been disabled. Returns [] quietly if it's unavailable,
+    blocked, or the site isn't WordPress.
+    """
+    return _discover_wp_rest_links(site_url, "pages", max_pages)
+
+
+def discover_wp_rest_posts(site_url: str, max_posts: int = 50000) -> list:
+    """
+    Same idea for blog POSTS (/wp-json/wp/v2/posts). WordPress hands over
+    the whole list in bulk -- 100 per request -- so we can recognise every
+    blog post without fetching a single individual page. A short timeout is
+    used because this is only a shortcut: if it's slow or blocked we just
+    fall back to checking pages one by one.
+    """
+    return _discover_wp_rest_links(site_url, "posts", max_posts, timeout=20)
+
+
+def exclude_wp_rest_posts(urls: list, site_url: str) -> list:
+    """
+    Drop every URL that WordPress itself lists as a blog post, instantly and
+    with no per-page fetching. Posts of custom types (not exposed at
+    /wp/v2/posts) aren't covered here -- those are still caught by the
+    per-page article:published_time check later on.
+    """
+    post_keys = {_canonicalize(u) for u in discover_wp_rest_posts(site_url)}
+    if not post_keys:
+        print("WordPress REST API: no post list available -- blog posts will be "
+              "detected page by page instead.", file=sys.stderr)
+        return urls
+    kept = [u for u in urls if _canonicalize(u) not in post_keys]
+    print(f"WordPress REST API: {len(post_keys)} blog post(s) on the site, "
+          f"{len(urls) - len(kept)} of them skipped instantly (no page fetch needed).",
+          file=sys.stderr)
+    return kept
 
 
 def find_sitemap_url(base_url: str) -> str:
@@ -711,6 +752,8 @@ def main():
     skipped = len(all_urls) - len(urls)
     if skipped:
         print(f"Skipping {skipped} excluded URL(s) (.php/.pdf, feeds, blog posts, /sitemap).", file=sys.stderr)
+    if not args.no_rest_api:
+        urls = exclude_wp_rest_posts(urls, args.site)
     print(f"Found {len(urls)} URLs. Fetching titles...", file=sys.stderr)
 
     entries = []

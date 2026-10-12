@@ -41,6 +41,7 @@ from sitemap_to_redirect_map import (
     resolve_duplicate_titles,
     strip_common_title_suffix,
     report_guessed_titles,
+    exclude_wp_rest_posts,
     _canonicalize,
 )
 
@@ -81,6 +82,7 @@ def get_new_site_pages(site_url: str, max_pages: int = 300, no_crawl: bool = Fal
         all_urls = [site_root] + all_urls
 
     urls = [u for u in all_urls if not is_excluded_url(u)]
+    urls = exclude_wp_rest_posts(urls, site_url)
 
     entries = []
     for i, url in enumerate(urls, 1):
